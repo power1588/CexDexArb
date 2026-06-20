@@ -19,12 +19,12 @@ import { createRiskManager } from "../src/executor/services/riskManager.js";
 import { createOrderRouter } from "../src/executor/services/orderRouter.js";
 
 function printHeader(title) {
-  console.log(`\n=== ${title} ===`);
+  process.stdout.write(`\n=== ${title} ===\n`);
 }
 
 function printStep(title, payload) {
-  console.log(`\n[${title}]`);
-  console.log(JSON.stringify(payload, null, 2));
+  process.stdout.write(`\n[${title}]\n`);
+  process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
 }
 
 function createScenarioInput(timestamp) {

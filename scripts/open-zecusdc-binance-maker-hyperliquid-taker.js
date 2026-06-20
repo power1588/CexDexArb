@@ -85,8 +85,6 @@ async function resolveHyperliquidUserContext(exchange, configuredAddress) {
     userRoleResponse: role,
   });
 
-  exchange.walletAddress = accountAddress;
-
   return {
     configuredAddress,
     accountAddress,
@@ -233,7 +231,7 @@ async function main() {
         limits: hyperliquidMarket.limits,
         userContext: {
           role: hyperliquidUserContext.role,
-          configuredAddress:
+          signerAddress:
             hyperliquidUserContext.configuredAddress?.slice(0, 10) + "...",
           accountAddress: hyperliquidUserContext.accountAddress?.slice(0, 10) + "...",
         },

@@ -1,0 +1,72 @@
+import { StateTransitionError } from "./errors.js";
+
+export const EXECUTION_STATES = Object.freeze({
+  IDLE: "IDLE",
+  SIGNAL_VALIDATED: "SIGNAL_VALIDATED",
+  PRECHECK_PASSED: "PRECHECK_PASSED",
+  QUOTING_MAKER: "QUOTING_MAKER",
+  LEG1_PARTIAL_FILLED: "LEG1_PARTIAL_FILLED",
+  HEDGE_PENDING: "HEDGE_PENDING",
+  HEDGED: "HEDGED",
+  POSITION_MONITORING: "POSITION_MONITORING",
+  EXIT_PENDING: "EXIT_PENDING",
+  HEDGE_FAILED: "HEDGE_FAILED",
+  EMERGENCY_REBALANCE: "EMERGENCY_REBALANCE",
+  FLAT: "FLAT",
+});
+
+const ALLOWED_TRANSITIONS = Object.freeze({
+  [EXECUTION_STATES.IDLE]: [EXECUTION_STATES.SIGNAL_VALIDATED],
+  [EXECUTION_STATES.SIGNAL_VALIDATED]: [EXECUTION_STATES.PRECHECK_PASSED, EXECUTION_STATES.FLAT],
+  [EXECUTION_STATES.PRECHECK_PASSED]: [
+    EXECUTION_STATES.QUOTING_MAKER,
+    EXECUTION_STATES.HEDGE_PENDING,
+    EXECUTION_STATES.FLAT,
+  ],
+  [EXECUTION_STATES.QUOTING_MAKER]: [
+    EXECUTION_STATES.LEG1_PARTIAL_FILLED,
+    EXECUTION_STATES.HEDGE_PENDING,
+    EXECUTION_STATES.FLAT,
+  ],
+  [EXECUTION_STATES.LEG1_PARTIAL_FILLED]: [EXECUTION_STATES.HEDGE_PENDING, EXECUTION_STATES.FLAT],
+  [EXECUTION_STATES.HEDGE_PENDING]: [EXECUTION_STATES.HEDGED, EXECUTION_STATES.HEDGE_FAILED],
+  [EXECUTION_STATES.HEDGE_FAILED]: [EXECUTION_STATES.EMERGENCY_REBALANCE],
+  [EXECUTION_STATES.EMERGENCY_REBALANCE]: [EXECUTION_STATES.FLAT],
+  [EXECUTION_STATES.HEDGED]: [EXECUTION_STATES.POSITION_MONITORING, EXECUTION_STATES.FLAT],
+  [EXECUTION_STATES.POSITION_MONITORING]: [EXECUTION_STATES.EXIT_PENDING, EXECUTION_STATES.FLAT],
+  [EXECUTION_STATES.EXIT_PENDING]: [EXECUTION_STATES.FLAT],
+  [EXECUTION_STATES.FLAT]: [],
+});
+
+export function createExecutionStateMachine(initialState = EXECUTION_STATES.IDLE) {
+  let currentState = initialState;
+  const history = [];
+
+  return {
+    getState() {
+      return currentState;
+    },
+    getHistory() {
+      return [...history];
+    },
+    transition(nextState, reason) {
+      const allowedNextStates = ALLOWED_TRANSITIONS[currentState] ?? [];
+
+      if (!allowedNextStates.includes(nextState)) {
+        throw new StateTransitionError(`非法状态迁移: ${currentState} -> ${nextState}`, {
+          currentState,
+          nextState,
+          reason,
+        });
+      }
+
+      history.push({
+        from: currentState,
+        to: nextState,
+        reason,
+      });
+      currentState = nextState;
+      return currentState;
+    },
+  };
+}

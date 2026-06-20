@@ -8,10 +8,17 @@
     "build": "vite build",
     "build:single": "npm run build && node scripts/build-single-file.js",
     "preview": "vite preview",
+    "spread:publish:redis": "node scripts/publish-spread-opportunities.js",
+    "dry-run:executor": "node scripts/dry-run-executor.js",
+    "open:zec-maker-hl-taker": "node scripts/open-zecusdc-binance-maker-hyperliquid-taker.js",
+    "hl:zec-buy:confirm": "node scripts/hl-zecusdc-confirmed-order.js",
     "test": "vitest",
+    "test:executor": "vitest run tests/executor",
     "test:run": "vitest run",
     "test:e2e": "playwright test",
     "lint": "eslint .",
+    "lint:executor": "eslint src/executor tests/executor",
+    "check:executor": "npm run test:executor && npm run lint:executor",
     "format": "prettier --write .",
     "check": "npm run test:run && npm run lint && npm run build && npm run test:e2e"
   },
@@ -24,5 +31,10 @@
     "prettier": "^3.6.2",
     "vite": "^7.0.0",
     "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "ccxt": "^4.5.59",
+    "redis": "^6.0.0",
+    "ws": "^8.21.0"
   }
 }

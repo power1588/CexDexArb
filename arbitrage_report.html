@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Binance × Hyperliquid 永续合约套利策略研究报告</title>
+<style>
+  :root{
+    --bg:#0b0f17;
+    --bg-soft:#121826;
+    --card:#161d2e;
+    --card-2:#1b2438;
+    --border:#26304a;
+    --text:#e6ebf5;
+    --muted:#94a0b8;
+    --accent:#f0b90b;        /* Binance 黄 */
+    --accent2:#50d2c1;       /* Hyperliquid 青绿 */
+    --accent3:#7c5cff;       /* 辅助紫 */
+    --up:#2ecc71;
+    --down:#ff5c5c;
+    --warn:#ffb454;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:"PingFang SC","Microsoft YaHei",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:radial-gradient(1200px 800px at 80% -10%, #1a2238 0%, transparent 60%),
+               radial-gradient(900px 700px at -10% 20%, #1c1630 0%, transparent 55%),
+               var(--bg);
+    color:var(--text);
+    line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:48px 28px 80px}
+  header.hero{
+    border:1px solid var(--border);
+    border-radius:20px;
+    padding:42px 38px;
+    background:linear-gradient(180deg, rgba(240,185,11,.06), rgba(80,210,193,.06)), var(--card);
+    box-shadow:0 20px 60px rgba(0,0,0,.35);
+    position:relative;overflow:hidden;
+  }
+  header.hero::after{
+    content:"";position:absolute;inset:auto -120px -160px auto;width:420px;height:420px;
+    background:radial-gradient(closest-side, rgba(124,92,255,.25), transparent 70%);
+    filter:blur(20px);
+  }
+  .eyebrow{
+    display:inline-flex;gap:8px;align-items:center;font-size:12px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--muted);border:1px solid var(--border);
+    padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.02)
+  }
+  h1{font-size:38px;line-height:1.25;margin:18px 0 10px;font-weight:800;letter-spacing:.5px}
+  h1 .hl{color:var(--accent)} h1 .hl2{color:var(--accent2)}
+  .lead{color:var(--muted);font-size:16px;max-width:820px}
+  .meta{margin-top:18px;display:flex;flex-wrap:wrap;gap:10px;font-size:13px;color:var(--muted)}
+  .meta span{border:1px solid var(--border);padding:5px 10px;border-radius:8px;background:var(--bg-soft)}
+
+  section{margin-top:48px}
+  h2{
+    font-size:26px;margin:0 0 6px;display:flex;align-items:center;gap:12px;font-weight:700;
+    border-bottom:1px solid var(--border);padding-bottom:14px;
+  }
+  h2 .num{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:34px;height:34px;border-radius:10px;font-size:15px;
+    background:linear-gradient(135deg,var(--accent),var(--accent3));color:#0b0f17;font-weight:800
+  }
+  h3{font-size:19px;margin:26px 0 10px;color:#dfe6f7}
+  p{margin:10px 0}
+
+  .grid{display:grid;gap:16px}
+  .grid.cols-2{grid-template-columns:repeat(2,1fr)}
+  .grid.cols-3{grid-template-columns:repeat(3,1fr)}
+  @media(max-width:880px){.grid.cols-2,.grid.cols-3{grid-template-columns:1fr}}
+
+  .card{
+    border:1px solid var(--border);border-radius:16px;padding:20px;background:var(--card);
+    transition:transform .2s ease, border-color .2s ease, background .2s ease;
+  }
+  .card:hover{transform:translateY(-2px);border-color:#37436a;background:var(--card-2)}
+  .card h4{margin:0 0 8px;font-size:16px;color:#fff}
+  .card .tag{font-size:12px;color:var(--muted)}
+
+  .compare{width:100%;border-collapse:collapse;font-size:14px;overflow:hidden;border-radius:12px}
+  .compare th,.compare td{border:1px solid var(--border);padding:12px 14px;text-align:left;vertical-align:top}
+  .compare th{background:var(--bg-soft);color:#cdd6ec;font-weight:600}
+  .compare tr:nth-child(even) td{background:rgba(255,255,255,.015)}
+  .compare .hl{color:var(--accent2)} .compare .bn{color:var(--accent)}
+
+  .pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
+  .pill.up{background:rgba(46,204,113,.12);color:var(--up);border:1px solid rgba(46,204,113,.3)}
+  .pill.down{background:rgba(255,92,92,.12);color:var(--down);border:1px solid rgba(255,92,92,.3)}
+  .pill.warn{background:rgba(255,180,84,.12);color:var(--warn);border:1px solid rgba(255,180,84,.3)}
+  .pill.info{background:rgba(124,92,255,.14);color:#b6a6ff;border:1px solid rgba(124,92,255,.35)}
+
+  .callout{
+    border-left:4px solid var(--accent);background:linear-gradient(90deg, rgba(240,185,11,.08), transparent);
+    padding:16px 18px;border-radius:0 12px 12px 0;margin:18px 0;color:#f3e7c2;
+  }
+  .callout.green{border-color:var(--accent2);background:linear-gradient(90deg, rgba(80,210,193,.08), transparent);color:#cdeee9}
+  .callout.red{border-color:var(--down);background:linear-gradient(90deg, rgba(255,92,92,.08), transparent);color:#f6d6d6}
+  .callout b{color:#fff}
+
+  code,kbd,.mono{font-family:"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;font-size:13px;
+    background:#0d1322;border:1px solid var(--border);padding:2px 7px;border-radius:6px;color:#9ad0ff}
+  pre{
+    background:#0a0e18;border:1px solid var(--border);border-radius:12px;padding:18px;overflow:auto;
+    font-family:"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;font-size:12.5px;color:#cfe2ff;line-height:1.6
+  }
+  pre .c{color:#6b7a99} /* comment */
+
+  .steps{counter-reset:step;display:grid;gap:14px}
+  .step{
+    position:relative;padding:18px 18px 18px 62px;border:1px solid var(--border);border-radius:14px;background:var(--card)
+  }
+  .step::before{
+    counter-increment:step;content:counter(step);
+    position:absolute;left:16px;top:16px;width:30px;height:30px;border-radius:8px;
+    background:linear-gradient(135deg,var(--accent2),var(--accent3));color:#0b0f17;font-weight:800;
+    display:flex;align-items:center;justify-content:center;font-size:14px
+  }
+  .step h4{margin:0 0 6px;font-size:16px}
+  .step p{margin:6px 0;color:var(--muted)}
+
+  .risk-matrix td:nth-child(1){font-weight:600;color:#fff;width:22%}
+  .risk-matrix td:nth-child(2){width:42%}
+
+  .stat{display:flex;flex-direction:column;gap:4px;padding:18px;border:1px solid var(--border);border-radius:14px;background:var(--card)}
+  .stat .v{font-size:24px;font-weight:800;color:#fff}
+  .stat .v.b{color:var(--accent)} .stat .v.h{color:var(--accent2)} .stat .v.p{color:var(--accent3)}
+  .stat .l{font-size:12px;color:var(--muted)}
+
+  ul.dots{margin:8px 0;padding-left:22px}
+  ul.dots li{margin:6px 0}
+  ul.dots li::marker{color:var(--accent2)}
+
+  footer{margin-top:56px;border-top:1px solid var(--border);padding-top:20px;color:var(--muted);font-size:13px}
+  footer a{color:var(--accent2);text-decoration:none}
+  footer a:hover{text-decoration:underline}
+
+  .toc{
+    display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:18px
+  }
+  .toc a{
+    color:var(--text);text-decoration:none;border:1px solid var(--border);padding:10px 14px;border-radius:10px;
+    background:var(--card);font-size:14px;display:block;transition:.15s
+  }
+  .toc a:hover{border-color:var(--accent2);color:var(--accent2)}
+  @media(max-width:700px){.toc{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <span class="eyebrow">Research · CEX × DEX Arbitrage</span>
+    <h1><span class="hl">Binance</span> × <span class="hl2">Hyperliquid</span><br>永续合约套利策略研究报告</h1>
+    <p class="lead">聚焦资金费率跨所套利、美股代币的分红除权（Dividend / Ex-Date）交易，以及 Pre-IPO 永续（SpaceX、OpenAI、Anthropic）等 TradFi 新兴机会。本报告基于 2026 年公开资料整理，覆盖机制、数据、执行步骤、真实案例与风险矩阵。</p>
+    <div class="meta">
+      <span>数据截至：2026-06</span>
+      <span>标的：BTC / ETH / 美股代币 / Pre-IPO 永续</span>
+      <span>类型：Delta-Neutral 套利研究</span>
+    </div>
+    <nav class="toc">
+      <a href="#s1">① 平台机制差异</a>
+      <a href="#s2">② 资金费率跨所套利</a>
+      <a href="#s3">③ 美股代币：分红与除权</a>
+      <a href="#s4">④ Pre-IPO 永续机会</a>
+      <a href="#s5">⑤ 真实案例与数据</a>
+      <a href="#s6">⑥ 执行流程六步法</a>
+      <a href="#s7">⑦ 风险矩阵</a>
+      <a href="#s8">⑧ 工具与数据接口</a>
+    </nav>
+  </header>
+
+  <!-- ============ 1 ============ -->
+  <section id="s1">
+    <h2><span class="num">1</span> 平台机制差异：套利的土壤</h2>
+    <p>Hyperliquid 与 Binance 在结算频率、费率计算、市场结构上均存在结构性差异——这正是可被利用的定价偏差来源。</p>
+
+    <table class="compare">
+      <thead>
+        <tr><th style="width:22%">维度</th><th class="hl">Hyperliquid（DEX）</th><th class="bn">Binance（CEX）</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>结算频率</td><td>每 <b>1 小时</b> 结算一次</td><td>每 <b>8 小时</b>（部分币种每小时）</td></tr>
+        <tr><td>费率计算</td><td>Premium + 基础利率成分</td><td>Premium + 0.01% 利率基准</td></tr>
+        <tr><td>费率上下限</td><td>见官方文档（动态 cap/floor）</td><td>通常 ±0.75% / 周期</td></tr>
+        <tr><td>市场结构</td><td>完全链上订单簿（HyperCore）</td><td>中心化撮合引擎</td></tr>
+        <tr><td>资产覆盖</td><td>150+ 币种永续，含美股、Pre-IPO、HIP-3 任意资产</td><td>7000+ 美股代币（现货+永续）、主流币永续</td></tr>
+        <tr><td>Maker / Taker</td><td>0.015% / 0.045%</td><td>≈ 0.02% / 0.05%（视 VIP 等级）</td></tr>
+        <tr><td>托管</td><td>自托管 USDC（USDC Arbitrum / 原生）</td><td>平台托管 USDT</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout">
+      <b>关键结论：</b> 由于结算节奏与计算逻辑不同，同一资产的年化资金费率可在两所之间<b>长期偏离</b>，形成套利窗口。
+    </div>
+  </section>
+
+  <!-- ============ 2 ============ -->
+  <section id="s2">
+    <h2><span class="num">2</span> 资金费率跨所套利（Funding Rate Arbitrage）</h2>
+    <p>核心思路：在两所对同一标的建立<b>等额反向</b>头寸，从而保持 delta-neutral，只赚取两所资金费率之差。</p>
+
+    <h3>方向判断</h3>
+    <ul class="dots">
+      <li>若 <span class="mono">HL费率 &gt; BN费率</span>：在 Hyperliquid 做<b>空</b>，Binance 做<b>多</b></li>
+      <li>若 <span class="mono">HL费率 &lt; BN费率</span>：在 Hyperliquid 做<b>多</b>，Binance 做<b>空</b></li>
+    </ul>
+
+    <h3>净收益公式</h3>
+    <pre><span class="c"># 每小时净收益率（相对名义本金）</span>
+hourly_net = |HL_funding - BN_funding|
+             - HL_fee / hold_hours
+             - BN_fee / hold_hours
+
+<span class="c"># 触发阈值（经验值）</span>
+若 hourly_net &gt; 0.02% （即年化 &gt; ~17.5%）则可考虑开仓</pre>
+
+    <h3>快速扫描脚本（伪代码）</h3>
+    <pre><span class="c"># Hyperliquid：调用 metaAndAssetCtxs</span>
+POST https://api.hyperliquid.xyz/info
+body = {"type": "metaAndAssetCtxs"}
+
+<span class="c"># Binance：调用 premiumIndex</span>
+GET https://fapi.binance.com/fapi/v1/premiumIndex
+
+<span class="c"># 归一化为小时费率后求差</span>
+diff = hl_hourly - bn_hourly
+if abs(diff) &gt; 0.0002:
+    candidates.append((coin, hl, bn, diff))   <span class="c"># 阈值 0.02%/h</span></pre>
+
+    <h3>2026 年 5 月 30 日费率参考（年化）</h3>
+    <div class="grid cols-3">
+      <div class="stat"><div class="v b">~9%</div><div class="l">Binance · BTC 永续 30D 均值年化</div></div>
+      <div class="stat"><div class="v h">~16%</div><div class="l">Hyperliquid · BTC 永续 30D 均值年化</div></div>
+      <div class="stat"><div class="v p">~7%</div><div class="l">理论跨所价差年化（扣费前）</div></div>
+    </div>
+    <p style="color:var(--muted);font-size:13px">注：2026 年 Q2 市场情绪转冷，费率普遍接近零甚至转负；窗口虽小，但负费率环境反而给「现货多 + 永续空」的反向套利提供机会。</p>
+  </section>
+
+  <!-- ============ 3 ============ -->
+  <section id="s3">
+    <h2><span class="num">3</span> TradFi 新战场：股票代币的分红与除权</h2>
+    <p>当美股被铸成代币（xStocks、Ondo、Bitget Stocks 2.0 等）或上线永续合约后，<b>公司行动（Corporate Actions）</b> 在链上的处理方式与传统市场存在时差与机制差，形成新的套利维度。</p>
+
+    <h3>3.1 分红（Dividend）在链上的处理</h3>
+    <div class="grid cols-2">
+      <div class="card">
+        <h4>传统流程</h4>
+        <p class="tag">T+2 结算 · 银行清算</p>
+        <p>宣布日 → 除权日（Ex-Date，股价理论上 dropping dividend 金额）→ 股权登记日 → 派息日（3–5 天 ACH/SWIFT 到账）。</p>
+      </div>
+      <div class="card">
+        <h4>链上流程（如 Bitget Stocks 2.0 / Ondo）</h4>
+        <p class="tag">USDC/USDT 即时到账</p>
+        <p>托管券商代收现金分红 → 1:1 确定性映射 → 自动兑换稳定币 → 直接打到用户账户，<b>消除 3–5 天延迟</b>，资金立即可用。</p>
+      </div>
+    </div>
+
+    <h3>3.2 除权日套利（Ex-Dividend Arbitrage）</h3>
+    <p>传统玩法：<b>除权日前一日买入股票 + 同步做空期货/期权对冲</b>，捕获分红同时规避股价跳空。</p>
+    <div class="callout green">
+      <b>链上增强版机会：</b>
+      <ul class="dots" style="margin:8px 0 0">
+        <li><b>时差套利</b>：美股盘后/周末休市时，代币化股票与永续合约仍在 24/7 交易，除权信息在链上与 CEX 之间可能<b>非同步调整</b>，形成短暂定价偏差。</li>
+        <li><b>代币 vs 永续</b>：持有 xStocks 现货可获得分红；同时在 Hyperliquid 对同一标的做空永续。若永续多头拥挤导致费率为正，可同时<b>收分红 + 收资金费</b>，且对冲了价格风险。</li>
+        <li><b>拆股/反向拆股</b>：链上实时 1:1 映射，价格零偏离；但不同协议更新时点不同，跨协议存在窗口。</li>
+      </ul>
+    </div>
+
+    <h3>3.3 高费率美股代币示例（年化，2026-06）</h3>
+    <table class="compare">
+      <thead><tr><th>标的</th><th>Binance 年化多头费率</th><th>Hyperliquid 年化</th><th>含义</th></tr></thead>
+      <tbody>
+        <tr><td>Samsung Electronics</td><td><span class="pill down">+364%</span></td><td>—</td><td>做多极度拥挤</td></tr>
+        <tr><td>Nokia</td><td><span class="pill down">+403%</span></td><td>—</td><td>多头拥挤</td></tr>
+        <tr><td>BBX</td><td><span class="pill down">+591%</span></td><td>—</td><td>极端溢价</td></tr>
+        <tr><td>Dell</td><td>—</td><td><span class="pill down">+281%</span></td><td>HL 多头拥挤</td></tr>
+        <tr><td>GameStop (GME)</td><td>—</td><td><span class="pill down">+227%</span></td><td>散户做多狂热</td></tr>
+        <tr><td>Zoom</td><td>—</td><td><span class="pill down">+287%</span></td><td>意外高费率</td></tr>
+        <tr><td>Eli Lilly (LLY)</td><td><span class="pill up">-65%</span></td><td><span class="pill up">-103%</span></td><td>空头拥挤，做多反收费</td></tr>
+        <tr><td>Apple (AAPL)</td><td><span class="pill">0%</span></td><td><span class="pill up">-14%</span></td><td>两所价差显著</td></tr>
+      </tbody>
+    </table>
+    <div class="callout">
+      <b>策略启示：</b> Eli Lilly / Apple 这类<b>负费率</b>标的，意味着「做多永续 + 做空现货/反向对冲」可<b>双向收费</b>。Cbb 等大户即通过「现货多 + 永续空」数月赚取 240 万美元资金费。
+    </div>
+  </section>
+
+  <!-- ============ 4 ============ -->
+  <section id="s4">
+    <h2><span class="num">4</span> Pre-IPO 永续：尚未上市的巨型独角兽</h2>
+    <p>借助 Hyperliquid 的 <b>HIP-3</b> 无许可框架，任何人都可部署任意资产（含股票、商品、私有公司估值）的永续市场。这让 SpaceX、OpenAI、Anthropic 等<b>未上市公司</b>首次出现「24/7 公开价格发现 + 5–10x 杠杆」的零售可交易市场。</p>
+
+    <h3>4.1 代表性标的</h3>
+    <div class="grid cols-3">
+      <div class="card">
+        <h4>SpaceX (SPCX)</h4>
+        <p class="tag">trade.xyz · HIP-3</p>
+        <p>开盘 <b>$208/股</b>（隐含估值 ~$2.4T），目标 2026-06-12 Nasdaq 上市；5x 杠杆、USDC 保证金、无需合格投资者认证。</p>
+      </div>
+      <div class="card">
+        <h4>OpenAI</h4>
+        <p class="tag">Hyperliquid 原生市场</p>
+        <p>对私营估值做多/做空，捕获 AI 叙事热度与估值波动。</p>
+      </div>
+      <div class="card">
+        <h4>Anthropic</h4>
+        <p class="tag">Hyperliquid 原生市场</p>
+        <p>押注其 IPO 前估值变化；流动性弱于 BTC 但费率波动极大。</p>
+      </div>
+    </div>
+
+    <h3>4.2 Pre-IPO 套利/交易逻辑</h3>
+    <ul class="dots">
+      <li><b>估值发现套利</b>：Pre-IPO 永续价格 vs 一级市场 Forge/EquityZen 等私募报价之间存在差价，上市临近时趋于收敛。</li>
+      <li><b>资金费率收割</b>：Pre-IPO 标的多头情绪浓厚，费率常处于高位，做空方可获高额资金费（参考 SPCX funding/hr +0.0006%）。</li>
+      <li><b>上市事件交易</b>：IPO 当日现货开盘价 vs 永续价格可能大幅偏离，形成「现货 + 永续」对冲的事件套利。</li>
+      <li><b>Bloomberg 前例参考</b>：历史上私募永续/CFD 在上市前后的价格收敛路径可作为模型参照。</li>
+    </ul>
+
+    <div class="callout red">
+      <b>风险提示：</b> Pre-IPO 永续<b>无底层股份托管</b>，纯 oracle 报价；存在极端波动、清算、监管不确定与 oracle 操纵风险。仅适合高风险偏好资金。
+    </div>
+  </section>
+
+  <!-- ============ 5 ============ -->
+  <section id="s5">
+    <h2><span class="num">5</span> 真实案例与市场数据</h2>
+
+    <div class="grid cols-2">
+      <div class="card">
+        <h4>案例 A · Cbb（加密大户）</h4>
+        <p class="tag">现货美股多 + Hyperliquid 永续空</p>
+        <p>「买入真实美股 + 同步在 HL 做空等额永续」。股价涨跌互相抵消，纯赚资金费。<b>近几个月累计 240 万美元</b>资金费收入，与股价方向无关。</p>
+      </div>
+      <div class="card">
+        <h4>案例 B · Ethena（机构）</h4>
+        <p class="tag">Delta-Neutral 规模化</p>
+        <p>计划把其 USDe 的 delta-neutral 引擎迁移到美股永续，预估每年可通过费率捕捉 <b>$4000 万–$8000 万</b>稳定收入。</p>
+      </div>
+    </div>
+
+    <h3>市场结构数据</h3>
+    <div class="grid cols-3">
+      <div class="stat"><div class="v b">7,000+</div><div class="l">Binance 支持的美股现货+永续标的数</div></div>
+      <div class="stat"><div class="v h">$5B+</div><div class="l">Hyperliquid 日交易量（占 DEX 永续 70%+）</div></div>
+      <div class="stat"><div class="v p">18% → 9%</div><div class="l">BTC 永续费率被套利资金压缩的历史区间</div></div>
+    </div>
+    <p style="color:var(--muted);font-size:13px">早期窗口会随套利资本涌入而收窄——「先到者吃最肥的那口肉」。</p>
+  </section>
+
+  <!-- ============ 6 ============ -->
+  <section id="s6">
+    <h2><span class="num">6</span> 执行流程六步法</h2>
+    <div class="steps">
+      <div class="step">
+        <h4>识别机会（Identify）</h4>
+        <p>同时拉取两所费率 API，计算归一化小时费率差，过滤 <span class="mono">|diff| &gt; 0.02%/h</span> 的候选。</p>
+      </div>
+      <div class="step">
+        <h4>计算净收益（Calculate）</h4>
+        <p>扣除 maker/taker 手续费、转账费、滑点，确保年化净收益 &gt; 个人阈值（建议 &gt; 10%）。</p>
+      </div>
+      <div class="step">
+        <h4>准备资金（Fund）</h4>
+        <p>HL 端：USDC（Arbitrum）存入保证金账户；BN 端：等额 USDT 存入合约账户。每边保证金 ≈ 名义本金 / 目标杠杆。</p>
+      </div>
+      <div class="step">
+        <h4>同步开双腿（Execute）</h4>
+        <p>程序化同步下单，避免单腿敞口。建议 <b>1×–2× 低杠杆</b>，留足 20% 保证金缓冲。</p>
+      </div>
+      <div class="step">
+        <h4>持续监控（Monitor）</h4>
+        <p>跟踪：累计 funding、组合 delta（应≈0）、两所费率差是否反转。设费率阈值触发平仓。</p>
+      </div>
+      <div class="step">
+        <h4>同步平仓（Close）</h4>
+        <p>费率反转或达目标收益时，双腿同时平仓；分批减仓降低滑点。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 7 ============ -->
+  <section id="s7">
+    <h2><span class="num">7</span> 风险矩阵</h2>
+    <table class="compare risk-matrix">
+      <thead><tr><th>风险类型</th><th>描述</th><th>应对</th></tr></thead>
+      <tbody>
+        <tr><td>强平风险</td><td>短期波动导致单腿被清算</td><td>低杠杆 + 充足保证金缓冲</td></tr>
+        <tr><td>费率反转</td><td>两所费率差方向改变</td><td>设阈值自动平仓</td></tr>
+        <tr><td>执行风险</td><td>双腿无法同时成交</td><td>程序化同步下单</td></tr>
+        <tr><td>流动性风险</td><td>大仓位滑点过高</td><td>分批建仓</td></tr>
+        <tr><td>平台风险</td><td>技术故障/提币限制</td><td>分散平台、设单所仓位上限</td></tr>
+        <tr><td>基差风险</td><td>永续与现货价差异常扩大</td><td>维持 20% 缓冲</td></tr>
+        <tr><td>监管风险</td><td>GENIUS Act / MiCAR 政策变化</td><td>跟踪合规、利用监管套利窗口</td></tr>
+        <tr><td>Pre-IPO Oracle 风险</td><td>私有公司估值被操纵</td><td>小仓位、严格止损</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 8 ============ -->
+  <section id="s8">
+    <h2><span class="num">8</span> 工具与数据接口</h2>
+    <div class="grid cols-2">
+      <div class="card">
+        <h4>Hyperliquid 数据</h4>
+        <p>Info Endpoint：<span class="mono">POST api.hyperliquid.xyz/info</span></p>
+        <p>调用 <span class="mono">metaAndAssetCtxs</span> 获取全市场费率、持仓、oracle 价。</p>
+      </div>
+      <div class="card">
+        <h4>Binance 数据</h4>
+        <p>Futures API：<span class="mono">GET /fapi/v1/premiumIndex</span></p>
+        <p>获取 lastFundingRate、markPrice、indexPrice。</p>
+      </div>
+      <div class="card">
+        <h4>执行库</h4>
+        <p><span class="mono">CCXT</span>（Python）统一多所下单；HL 官方 SDK 处理签名与 EIP-712。</p>
+      </div>
+      <div class="card">
+        <h4>监控面板</h4>
+        <p>建议自建 Grafana，跟踪累计 funding、delta、费率差时序，触发告警。</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p><b>免责声明：</b> 本报告仅为公开资料整理与研究目的，不构成投资建议。永续合约与 Pre-IPO 交易具有高风险，可能导致本金全部损失。请在合规框架内自行判断并承担风险。</p>
+    <p style="margin-top:10px">主要资料来源（访问于 2026-06）：</p>
+    <ul style="margin:6px 0 0;padding-left:22px;line-height:2">
+      <li><a href="https://www.odaily.com.cn/en/post/5211161" target="_blank" rel="noopener">Odaily · One million in a week: Crypto arbitrageur's new hunting ground in US stocks</a></li>
+      <li><a href="https://onekey.so/blog/ecosystem/hyperliquid-binance-funding-arbitrage/" target="_blank" rel="noopener">OneKey · Hyperliquid vs Binance Funding Rate Arbitrage Guide</a></li>
+      <li><a href="https://hyperliquidguide.com/ecosystem/trade-spacex-pre-ipo-hyperliquid" target="_blank" rel="noopener">Hyperliquid Guide · How to Trade SpaceX (SPCX) Pre-IPO</a></li>
+      <li><a href="https://www.bitget.site/academy/how-dividends-and-splits-work-on-tokenized-stocks" target="_blank" rel="noopener">Bitget Academy · Dividends, Splits & Corporate Actions in Stocks 2.0</a></li>
+      <li><a href="https://bitcointalk.org/index.php?topic=5584224.0" target="_blank" rel="noopener">BitcoinTalk · Funding rate arbitrage in 2026</a></li>
+      <li><a href="https://www.binance.com/en/square/post/300368623627842" target="_blank" rel="noopener">Binance Square · Ondo, xStocks, Hyperliquid Tokenization Battle</a></li>
+      <li><a href="https://hyperliquid.gitbook.io/hyperliquid-docs/trading/funding" target="_blank" rel="noopener">Hyperliquid Docs · Funding Mechanism</a></li>
+      <li><a href="https://www.investopedia.com/articles/stocks/11/dividend-capture-strategy.asp" target="_blank" rel="noopener">Investopedia · Dividend Capture Strategy</a></li>
+    </ul>
+  </footer>
+
+</div>
+</body>
+</html>

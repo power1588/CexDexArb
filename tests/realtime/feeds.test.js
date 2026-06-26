@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createRealtimeFeeds } from "../../src/realtime/feeds.js";
+import {
+  createRealtimeFeeds,
+  createUsdcRealtimeFeeds,
+} from "../../src/realtime/feeds.js";
 
 /** 模拟 WebSocket，便于测试订阅/推送/重连逻辑 */
 function createMockWS() {
@@ -283,5 +286,140 @@ describe("createRealtimeFeeds", () => {
     expect(lastQuotes.BTC.hyperliquid.askPrice).toBeCloseTo(101.202, 8);
     expect(lastQuotes.BTC.hyperliquid.rawBidPrice).toBe(100);
     expect(lastQuotes.BTC.hyperliquid.quoteToUsdtRate).toBe(1.002);
+  });
+});
+
+describe("createUsdcRealtimeFeeds", () => {
+  it("订阅 Binance USDC-M stream 并推送 USDC 计价行情", () => {
+    const { MockWS, instances } = createMockWS();
+    let lastQuotes = null;
+    const feeds = createUsdcRealtimeFeeds({
+      symbols: [{ symbol: "BTC", binanceSymbol: "BTCUSDC", hyperliquidSymbol: "BTC" }],
+      onQuotes: (q) => {
+        lastQuotes = q;
+      },
+      WebSocketImpl: MockWS,
+    });
+
+    feeds.start();
+
+    // USDC feeds 只有 binance + hyperliquid 两路连接（无 FX）
+    expect(instances).toHaveLength(2);
+
+    const binanceWs = findBinanceFuturesWs(instances);
+    const hlWs = findHyperliquidWs(instances);
+
+    // Binance URL 应包含 btcusdc（而非 btcusdt）
+    expect(binanceWs.url).toContain("btcusdc@bookTicker");
+    expect(binanceWs.url).not.toContain("btcusdt");
+
+    binanceWs.mockOpen();
+    hlWs.mockOpen();
+
+    // HL 订阅 BTC coin
+    expect(JSON.parse(hlWs.sent[0]).subscription.coin).toBe("BTC");
+
+    binanceWs.mockMessage({
+      stream: "btcusdc@bookTicker",
+      data: { s: "BTCUSDC", b: "50000", a: "50010", B: "1.5", A: "2", E: 1000 },
+    });
+
+    hlWs.mockMessage({
+      channel: "bbo",
+      data: {
+        coin: "BTC",
+        time: 2000,
+        bbo: [
+          { px: "50001", sz: "1", n: 1 },
+          { px: "50009", sz: "1", n: 1 },
+        ],
+      },
+    });
+
+    // 两所都有数据后应触发 onQuotes（无需 FX 折算）
+    expect(lastQuotes).not.toBeNull();
+    expect(lastQuotes.BTC.binance.bidPrice).toBe(50000);
+    expect(lastQuotes.BTC.binance.quoteCurrency).toBe("USDC");
+    expect(lastQuotes.BTC.hyperliquid.bidPrice).toBe(50001);
+    expect(lastQuotes.BTC.hyperliquid.quoteCurrency).toBe("USDC");
+
+    feeds.stop();
+  });
+
+  it("正确处理 1000 前缀资产与 HL k 前缀的映射", () => {
+    const { MockWS, instances } = createMockWS();
+    let lastQuotes = null;
+    const feeds = createUsdcRealtimeFeeds({
+      symbols: [
+        {
+          symbol: "1000PEPE",
+          binanceSymbol: "1000PEPEUSDC",
+          hyperliquidSymbol: "kPEPE",
+        },
+      ],
+      onQuotes: (q) => {
+        lastQuotes = q;
+      },
+      WebSocketImpl: MockWS,
+    });
+
+    feeds.start();
+
+    const binanceWs = findBinanceFuturesWs(instances);
+    const hlWs = findHyperliquidWs(instances);
+
+    // Binance 订阅 1000pepeusdc stream
+    expect(binanceWs.url).toContain("1000pepeusdc@bookTicker");
+
+    binanceWs.mockOpen();
+    hlWs.mockOpen();
+
+    // HL 订阅 kPEPE coin
+    expect(JSON.parse(hlWs.sent[0]).subscription.coin).toBe("kPEPE");
+
+    binanceWs.mockMessage({
+      data: {
+        s: "1000PEPEUSDC",
+        b: "0.012",
+        a: "0.0121",
+        B: "10000",
+        A: "8000",
+        E: 1000,
+      },
+    });
+
+    hlWs.mockMessage({
+      channel: "bbo",
+      data: {
+        coin: "kPEPE",
+        time: 2000,
+        bbo: [
+          { px: "0.0121", sz: "5000", n: 1 },
+          { px: "0.0122", sz: "5000", n: 1 },
+        ],
+      },
+    });
+
+    expect(lastQuotes).not.toBeNull();
+    expect(lastQuotes["1000PEPE"].binance.bidPrice).toBe(0.012);
+    expect(lastQuotes["1000PEPE"].hyperliquid.askPrice).toBe(0.0122);
+
+    feeds.stop();
+  });
+
+  it("不建立 FX 连接（两腿均为 USDC）", () => {
+    const { MockWS, instances } = createMockWS();
+    const feeds = createUsdcRealtimeFeeds({
+      symbols: ["BTC"],
+      WebSocketImpl: MockWS,
+    });
+
+    feeds.start();
+
+    // 不应存在 Binance Spot FX 连接
+    const fxWs = instances.find((i) => i.url.includes("stream.binance.com:9443"));
+    expect(fxWs).toBeUndefined();
+
+    feeds.stop();
   });
 });

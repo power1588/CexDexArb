@@ -7,3 +7,7 @@ test-results
 .env
 .env.*
 !.env.example
+
+# Runtime data artifacts
+data/
+kX

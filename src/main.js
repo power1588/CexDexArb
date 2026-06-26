@@ -1,5 +1,8 @@
 import { createInitialData } from "./fixtures/mockData.js";
-import { createRealtimeFeeds } from "./realtime/feeds.js";
+import {
+  createRealtimeFeeds,
+  createUsdcRealtimeFeeds,
+} from "./realtime/feeds.js";
 import {
   bindAppEvents,
   renderApp,
@@ -61,6 +64,18 @@ export function bootstrap({
           store.updateFeedStatus(exchange, status, detail),
       });
       feeds.start();
+    }
+
+    // 启动 USDC 永续合约专属行情接入（Binance USDC-M + Hyperliquid，maker 0 fee）
+    let usdcFeeds = null;
+    if (enableRealtime && typeof WebSocket !== "undefined") {
+      usdcFeeds = createUsdcRealtimeFeeds({
+        symbols: store.getState().usdcPerpSymbols,
+        onQuotes: (quotes) => store.updateUsdcRealtimeQuotes(quotes),
+        onStatus: (exchange, status, detail) =>
+          store.updateUsdcFeedStatus(exchange, status, detail),
+      });
+      usdcFeeds.start();
     }
 
     if (enableMarketDiscovery && typeof fetch === "function") {

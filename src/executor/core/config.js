@@ -34,6 +34,9 @@ export const DEFAULT_EXECUTION_CONFIG = Object.freeze({
     opportunityChannel: "spread:opportunities",
     riskChannel: "spread:risk-events",
   },
+  sqlite: {
+    dbPath: "./data/executor.db",
+  },
   exchanges: {
     binance: {
       enabled: true,
@@ -49,6 +52,18 @@ export const DEFAULT_EXECUTION_CONFIG = Object.freeze({
         taker: 4.5,
       },
     },
+  },
+  /**
+   * L5-01 实盘 10U 测试风控红线参数。
+   * 这些参数在 live 模式下作为硬限制，超出即中止。
+   */
+  liveTestRisk: {
+    maxNotionalUsdc: 10,
+    maxSlippageBps: 10,
+    makerTimeoutMs: 120_000,
+    maxUnhedgedMs: 5_000,
+    maxCyclesPerDay: 5,
+    totalBudgetUsdc: 50,
   },
 });
 
@@ -146,6 +161,17 @@ export function configFromEnvironment(environmentVariables = {}) {
       opportunityChannel: environmentVariables.REDIS_OPPORTUNITY_CHANNEL,
       riskChannel: environmentVariables.REDIS_RISK_CHANNEL,
     },
+    sqlite: {
+      dbPath: environmentVariables.SQLITE_DB_PATH,
+    },
+    liveTestRisk: compactObject({
+      maxNotionalUsdc: parseNumber(environmentVariables.LIVE_MAX_NOTIONAL_USDC, undefined),
+      maxSlippageBps: parseNumber(environmentVariables.LIVE_MAX_SLIPPAGE_BPS, undefined),
+      makerTimeoutMs: parseNumber(environmentVariables.LIVE_MAKER_TIMEOUT_MS, undefined),
+      maxUnhedgedMs: parseNumber(environmentVariables.LIVE_MAX_UNHEDGED_MS, undefined),
+      maxCyclesPerDay: parseNumber(environmentVariables.LIVE_MAX_CYCLES_PER_DAY, undefined),
+      totalBudgetUsdc: parseNumber(environmentVariables.LIVE_TOTAL_BUDGET_USDC, undefined),
+    }),
   });
 }
 
@@ -174,6 +200,10 @@ export function validateExecutionConfig(config) {
 
   if (!isPlainObject(config.redis) || !config.redis.url || !config.redis.opportunityChannel) {
     throw new ConfigError("redis 配置缺失必要字段", { redis: config.redis });
+  }
+
+  if (!isPlainObject(config.sqlite) || typeof config.sqlite.dbPath !== "string" || config.sqlite.dbPath.trim() === "") {
+    throw new ConfigError("sqlite.dbPath 必须是非空字符串", { sqlite: config.sqlite });
   }
 
   if (!isPlainObject(config.exchanges)) {
@@ -206,6 +236,32 @@ export function validateExecutionConfig(config) {
       environment: config.environment,
       liveTradingEnabled: config.liveTradingEnabled,
     });
+  }
+
+  // L5-01: live 模式下校验 liveTestRisk 红线参数
+  if (config.environment === "live") {
+    const risk = config.liveTestRisk;
+    if (!isPlainObject(risk)) {
+      throw new ConfigError("live 模式必须配置 liveTestRisk", { liveTestRisk: risk });
+    }
+    const requiredRiskFields = [
+      "maxNotionalUsdc",
+      "maxSlippageBps",
+      "makerTimeoutMs",
+      "maxUnhedgedMs",
+      "maxCyclesPerDay",
+      "totalBudgetUsdc",
+    ];
+    for (const field of requiredRiskFields) {
+      if (!Number.isFinite(risk[field]) || risk[field] <= 0) {
+        throw new ConfigError(`liveTestRisk.${field} 必须是正数`, { field, value: risk[field] });
+      }
+    }
+    if (risk.maxNotionalUsdc > 10) {
+      throw new ConfigError("liveTestRisk.maxNotionalUsdc 不能超过 10（实盘 10U 测试硬上限）", {
+        value: risk.maxNotionalUsdc,
+      });
+    }
   }
 
   return config;

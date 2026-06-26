@@ -420,6 +420,176 @@ export function renderBootstrapError(root, message) {
   `;
 }
 
+function renderUsdcView(state) {
+  const opps = state.usdcSpreadOpportunities || [];
+  const totalOppCount = state.usdcSpreadOpportunityCount ?? opps.length;
+  const binanceStatus = state.usdcFeedStatus?.binance || "closed";
+  const hlStatus = state.usdcFeedStatus?.hyperliquid || "closed";
+  const connected = binanceStatus === "open" && hlStatus === "open";
+  const hasRealtimeData = totalOppCount > 0;
+  const hasFilteredData = opps.length > 0;
+  const usdcPerpCount = state.usdcPerpCount ?? 0;
+  const emptyTitle =
+    usdcPerpCount === 0
+      ? "暂无 USDC 共同交易对"
+      : totalOppCount > 0 && state.activeUsdcStatusFilter !== "all"
+        ? "当前状态下暂无结果"
+      : totalOppCount > 0 && state.activeUsdcMin24hVolumeUsd > 0
+        ? "当前交易量阈值下暂无结果"
+      : connected
+        ? "等待实时行情数据"
+        : "等待连接";
+  const emptyMessage =
+    usdcPerpCount === 0
+      ? "尚未配置 Binance USDC-M 与 Hyperliquid 的共同永续标的。"
+      : totalOppCount > 0 && state.activeUsdcStatusFilter !== "all"
+        ? "当前状态筛选下没有匹配的 USDC 价差机会，请切换状态或恢复查看全部。"
+      : totalOppCount > 0 && state.activeUsdcMin24hVolumeUsd > 0
+        ? "当前双边 24h 成交量阈值下没有匹配的 USDC 价差机会，请降低阈值或恢复查看全部。"
+      : connected
+        ? "盘口数据到达后将按所选排序自动展示；若长时间无数据，请检查网络或刷新页面。"
+        : "正在连接 Binance USDC-M 与 Hyperliquid WebSocket，双边就绪后会自动开始 USDC 价差计算。";
+
+  return `
+    <section class="summary-grid" data-testid="usdc-summary" aria-label="USDC 永续价差机会摘要">
+      <article class="metric-card">
+        <span class="metric-label">USDC 价差机会</span>
+        <strong class="metric-value">${totalOppCount}</strong>
+      </article>
+      <article class="metric-card">
+        <span class="metric-label">可执行 (ready)</span>
+        <strong class="metric-value">${state.readyUsdcSpreadCount ?? 0}</strong>
+      </article>
+      <article class="metric-card">
+        <span class="metric-label">待补数据</span>
+        <strong class="metric-value">${state.missingUsdcSpreadCount ?? 0}</strong>
+      </article>
+      <article class="metric-card">
+        <span class="metric-label">费率模型</span>
+        <strong class="metric-value" style="font-size:0.95rem">B maker 0 / HL taker 4.5bps</strong>
+      </article>
+    </section>
+
+    <section class="spread-status-bar" data-testid="usdc-status">
+      ${renderSpreadStatusChip("binance", binanceStatus)}
+      ${renderSpreadStatusChip("hyperliquid", hlStatus)}
+      <span class="meta-chip">${
+        hasRealtimeData
+          ? state.activeUsdcStatusFilter === "all"
+            ? `实时 ${totalOppCount} 标的`
+            : `显示 ${opps.length} / ${totalOppCount} 标的`
+          : "等待行情推送"
+      }</span>
+      ${renderSortControls("usdc", state.activeUsdcSort, [
+        { value: "netSpreadAbs", label: "净价差绝对值" },
+        { value: "netSpreadPct", label: "净价差" },
+        { value: "grossSpreadPct", label: "毛价差" },
+        { value: "maxNotionalUsd", label: "可成交量" },
+      ])}
+    </section>
+
+    <div class="status-filter-group" data-testid="usdc-status-filters" aria-label="按状态筛选 USDC 价差机会">
+      ${[
+        { value: "all", label: "全部" },
+        { value: "ready", label: "可执行" },
+        { value: "watch", label: "观察" },
+        { value: "blocked", label: "阻断" },
+      ]
+        .map(
+          (option) => `
+            <button
+              class="${state.activeUsdcStatusFilter === option.value ? "tab is-active" : "tab"}"
+              data-usdc-status="${option.value}"
+              aria-pressed="${state.activeUsdcStatusFilter === option.value}"
+            >
+              ${option.label}
+            </button>
+          `,
+        )
+        .join("")}
+    </div>
+
+    <label class="spread-volume-filter">
+      <span>双边24h量</span>
+      <select data-usdc-filter-key="min24hVolumeUsd" aria-label="按双边24小时成交量筛选 USDC 机会">
+        ${[
+          { value: 0, label: "全部" },
+          { value: 1_000_000, label: ">= 100万U" },
+          { value: 5_000_000, label: ">= 500万U" },
+          { value: 10_000_000, label: ">= 1000万U" },
+        ]
+          .map(
+            (option) => `
+              <option value="${option.value}" ${Number(state.activeUsdcMin24hVolumeUsd) === option.value ? "selected" : ""}>
+                ${option.label}
+              </option>
+            `,
+          )
+          .join("")}
+      </select>
+    </label>
+
+    <article class="panel opportunity-panel" data-testid="usdc-matrix" aria-labelledby="usdc-title">
+      <div class="panel-head">
+        <div>
+          <h2 id="usdc-title">USDC 永续合约价差机会</h2>
+          <p class="panel-subtitle">Binance USDC 合约 maker 0 fee × Hyperliquid USDC 永续 taker 4.5bps，监控两所共有 USDC 交易对。</p>
+        </div>
+      </div>
+      ${
+        !hasFilteredData
+          ? `<div class="empty-state-card">
+              <strong>${emptyTitle}</strong>
+              <p>${emptyMessage}</p>
+            </div>`
+          : `<div class="table-scroll">
+              <table class="opportunity-table spread-table">
+                <caption class="sr-only">USDC 永续合约价差机会列表</caption>
+                <thead>
+                  <tr>
+                    <th>标的</th>
+                    <th>买入所</th>
+                    <th>买入价</th>
+                    <th>卖出所</th>
+                    <th>卖出价</th>
+                    <th>毛价差</th>
+                    <th>手续费</th>
+                    <th>净价差</th>
+                    <th>24h量(B/H)</th>
+                    <th>可成交量</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${opps
+                    .map((opp) => {
+                      const cls = `status-${opp.status}`;
+                      const netClass = opp.netSpreadPct > 0 ? "positive" : "negative";
+                      return `
+                        <tr>
+                          <td>${opp.symbol}</td>
+                          <td>${formatExchange(opp.buyExchange)}</td>
+                          <td>${formatPriceUsd(opp.buyPrice)}</td>
+                          <td>${formatExchange(opp.sellExchange)}</td>
+                          <td>${formatPriceUsd(opp.sellPrice)}</td>
+                          <td>${formatPercent(opp.grossSpreadPct, 3)}</td>
+                          <td>${formatPercent(opp.feeCostPct, 3)}</td>
+                          <td class="${netClass}">${formatPercent(opp.netSpreadPct, 3)}</td>
+                          <td>${formatUsd(opp.binance24hVolumeUsd ?? 0)} / ${formatUsd(opp.hyperliquid24hVolumeUsd ?? 0)}</td>
+                          <td>${formatUsd(opp.maxNotionalUsd)}</td>
+                          <td><span class="status-pill ${cls}">${formatStatus(opp.status)}</span></td>
+                        </tr>
+                      `;
+                    })
+                    .join("")}
+                </tbody>
+              </table>
+            </div>`
+      }
+    </article>
+  `;
+}
+
 export function renderApp(root, state) {
   const viewportMode = getViewportMode();
 
@@ -444,10 +614,22 @@ export function renderApp(root, state) {
         >
           价差交易机会
         </button>
+        <button
+          class="${state.activeTab === "usdc" ? "tab is-active" : "tab"}"
+          data-tab="usdc"
+          aria-pressed="${state.activeTab === "usdc"}"
+          aria-label="切换到 USDC 永续合约价差机会视图"
+        >
+          USDC 永续合约
+        </button>
       </nav>
 
       <main class="view-stack" role="main">
-        ${state.activeTab === "spread" ? renderSpreadView(state) : renderFundingView(state)}
+        ${state.activeTab === "spread"
+          ? renderSpreadView(state)
+          : state.activeTab === "usdc"
+            ? renderUsdcView(state)
+            : renderFundingView(state)}
       </main>
     </div>
   `;
@@ -491,6 +673,10 @@ export function bindAppEvents(root, store) {
       store.setSpreadStatusFilter(target.dataset.spreadStatus);
     }
 
+    if (target.dataset.usdcStatus) {
+      store.setUsdcStatusFilter(target.dataset.usdcStatus);
+    }
+
     if (target.dataset.timeframe) {
       store.setChartTimeframe(target.dataset.timeframe);
     }
@@ -498,10 +684,12 @@ export function bindAppEvents(root, store) {
     if (target.dataset.sortScope && target.dataset.sortDirection) {
       const scope = target.dataset.sortScope;
       const state = store.getState();
-      const sortBy =
-        scope === "funding"
-          ? state.activeFundingSort.sortBy
-          : state.activeSpreadSort.sortBy;
+      const scopeSorts = {
+        funding: state.activeFundingSort.sortBy,
+        spread: state.activeSpreadSort.sortBy,
+        usdc: state.activeUsdcSort?.sortBy ?? "netSpreadAbs",
+      };
+      const sortBy = scopeSorts[scope] ?? state.activeFundingSort.sortBy;
       store.setSort(scope, sortBy, target.dataset.sortDirection);
     }
   });
@@ -549,6 +737,10 @@ export function bindAppEvents(root, store) {
 
     if (target.matches("[data-spread-filter-key]")) {
       store.setSpreadMin24hVolumeUsd(Number(target.value));
+    }
+
+    if (target.matches("[data-usdc-filter-key]")) {
+      store.setUsdcMin24hVolumeUsd(Number(target.value));
     }
 
     if (typeof target.blur === "function" && target.matches("select")) {

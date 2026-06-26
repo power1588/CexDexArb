@@ -261,6 +261,58 @@ export const chartSeries = [
   },
 ];
 
+/**
+ * Binance USDC-M 永续合约与 Hyperliquid 永续合约的交集。
+ *
+ * 数据来源（2026-06 实时拉取）：
+ * - Binance USDC-M Perpetual：38 个（maker 0.0000% / taker 0.0400%）
+ * - Hyperliquid Perpetual：230 个
+ * - 交集：38 个（Binance 的全部 USDC 永续在 Hyperliquid 均有对应合约）
+ *
+ * 注意：Binance 的 1000 前缀资产在 Hyperliquid 对应 k 前缀
+ * （如 1000PEPE ↔ kPEPE，1000SHIB ↔ kSHIB，1000BONK ↔ kBONK）。
+ */
+export const USDC_PERP_SYMBOLS = [
+  { symbol: "BTC", binanceSymbol: "BTCUSDC", hyperliquidSymbol: "BTC" },
+  { symbol: "ETH", binanceSymbol: "ETHUSDC", hyperliquidSymbol: "ETH" },
+  { symbol: "BNB", binanceSymbol: "BNBUSDC", hyperliquidSymbol: "BNB" },
+  { symbol: "SOL", binanceSymbol: "SOLUSDC", hyperliquidSymbol: "SOL" },
+  { symbol: "XRP", binanceSymbol: "XRPUSDC", hyperliquidSymbol: "XRP" },
+  { symbol: "DOGE", binanceSymbol: "DOGEUSDC", hyperliquidSymbol: "DOGE" },
+  { symbol: "SUI", binanceSymbol: "SUIUSDC", hyperliquidSymbol: "SUI" },
+  { symbol: "LINK", binanceSymbol: "LINKUSDC", hyperliquidSymbol: "LINK" },
+  { symbol: "ORDI", binanceSymbol: "ORDIUSDC", hyperliquidSymbol: "ORDI" },
+  { symbol: "1000PEPE", binanceSymbol: "1000PEPEUSDC", hyperliquidSymbol: "kPEPE" },
+  { symbol: "WLD", binanceSymbol: "WLDUSDC", hyperliquidSymbol: "WLD" },
+  { symbol: "AVAX", binanceSymbol: "AVAXUSDC", hyperliquidSymbol: "AVAX" },
+  { symbol: "1000SHIB", binanceSymbol: "1000SHIBUSDC", hyperliquidSymbol: "kSHIB" },
+  { symbol: "WIF", binanceSymbol: "WIFUSDC", hyperliquidSymbol: "WIF" },
+  { symbol: "BCH", binanceSymbol: "BCHUSDC", hyperliquidSymbol: "BCH" },
+  { symbol: "LTC", binanceSymbol: "LTCUSDC", hyperliquidSymbol: "LTC" },
+  { symbol: "NEAR", binanceSymbol: "NEARUSDC", hyperliquidSymbol: "NEAR" },
+  { symbol: "ARB", binanceSymbol: "ARBUSDC", hyperliquidSymbol: "ARB" },
+  { symbol: "NEO", binanceSymbol: "NEOUSDC", hyperliquidSymbol: "NEO" },
+  { symbol: "FIL", binanceSymbol: "FILUSDC", hyperliquidSymbol: "FIL" },
+  { symbol: "TIA", binanceSymbol: "TIAUSDC", hyperliquidSymbol: "TIA" },
+  { symbol: "BOME", binanceSymbol: "BOMEUSDC", hyperliquidSymbol: "BOME" },
+  { symbol: "ENA", binanceSymbol: "ENAUSDC", hyperliquidSymbol: "ENA" },
+  { symbol: "ETHFI", binanceSymbol: "ETHFIUSDC", hyperliquidSymbol: "ETHFI" },
+  { symbol: "1000BONK", binanceSymbol: "1000BONKUSDC", hyperliquidSymbol: "kBONK" },
+  { symbol: "CRV", binanceSymbol: "CRVUSDC", hyperliquidSymbol: "CRV" },
+  { symbol: "KAITO", binanceSymbol: "KAITOUSDC", hyperliquidSymbol: "KAITO" },
+  { symbol: "IP", binanceSymbol: "IPUSDC", hyperliquidSymbol: "IP" },
+  { symbol: "TRUMP", binanceSymbol: "TRUMPUSDC", hyperliquidSymbol: "TRUMP" },
+  { symbol: "ADA", binanceSymbol: "ADAUSDC", hyperliquidSymbol: "ADA" },
+  { symbol: "PNUT", binanceSymbol: "PNUTUSDC", hyperliquidSymbol: "PNUT" },
+  { symbol: "HBAR", binanceSymbol: "HBARUSDC", hyperliquidSymbol: "HBAR" },
+  { symbol: "AAVE", binanceSymbol: "AAVEUSDC", hyperliquidSymbol: "AAVE" },
+  { symbol: "UNI", binanceSymbol: "UNIUSDC", hyperliquidSymbol: "UNI" },
+  { symbol: "PENGU", binanceSymbol: "PENGUUSDC", hyperliquidSymbol: "PENGU" },
+  { symbol: "BIO", binanceSymbol: "BIOUSDC", hyperliquidSymbol: "BIO" },
+  { symbol: "WLFI", binanceSymbol: "WLFIUSDC", hyperliquidSymbol: "WLFI" },
+  { symbol: "ZEC", binanceSymbol: "ZECUSDC", hyperliquidSymbol: "ZEC" },
+];
+
 export function createInitialData() {
   return {
     monitorSnapshot,
@@ -284,6 +336,8 @@ export function createInitialData() {
         hyperliquidSymbol: "SOL",
       },
     ],
+    // Binance USDC-M × Hyperliquid 共有永续合约（maker 0 fee 专属）
+    usdcPerpSymbols: USDC_PERP_SYMBOLS,
     symbolUniverseStatus: {
       status: "ready",
       binance: "static",

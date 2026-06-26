@@ -63,4 +63,44 @@ describe("execution config", () => {
     expect(liveConfig.environment).toBe("live");
     expect(liveConfig.liveTradingEnabled).toBe(true);
   });
+
+  it("L5-01: live 模式校验 liveTestRisk 红线参数", () => {
+    const liveConfig = loadExecutionConfig({
+      environment: "live",
+      overrides: { liveTradingEnabled: true },
+    });
+    expect(liveConfig.liveTestRisk).toMatchObject({
+      maxNotionalUsdc: 10,
+      maxSlippageBps: 10,
+      makerTimeoutMs: 120_000,
+      maxUnhedgedMs: 5_000,
+      maxCyclesPerDay: 5,
+      totalBudgetUsdc: 50,
+    });
+  });
+
+  it("L5-01: live 模式 liveTestRisk.maxNotionalUsdc 超过 10 被拦截", () => {
+    expect(() =>
+      loadExecutionConfig({
+        environment: "live",
+        overrides: {
+          liveTradingEnabled: true,
+          liveTestRisk: { maxNotionalUsdc: 100 },
+        },
+      }),
+    ).toThrow("maxNotionalUsdc");
+  });
+
+  it("L5-01: 支持通过环境变量覆盖 liveTestRisk", () => {
+    const liveConfig = loadExecutionConfig({
+      environment: "live",
+      overrides: { liveTradingEnabled: true },
+      environmentVariables: {
+        LIVE_MAX_NOTIONAL_USDC: "5",
+        LIVE_MAX_SLIPPAGE_BPS: "8",
+      },
+    });
+    expect(liveConfig.liveTestRisk.maxNotionalUsdc).toBe(5);
+    expect(liveConfig.liveTestRisk.maxSlippageBps).toBe(8);
+  });
 });

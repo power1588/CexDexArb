@@ -46,11 +46,30 @@ const defaultSortState = {
     sortBy: "netSpreadAbs",
     sortDirection: "desc",
   },
+  usdc: {
+    sortBy: "netSpreadAbs",
+    sortDirection: "desc",
+  },
 };
 
 const defaultSpreadFilters = {
   status: "all",
   min24hVolumeUsd: 0,
+};
+
+const defaultUsdcFilters = {
+  status: "all",
+  min24hVolumeUsd: 0,
+};
+
+/**
+ * USDC 永续合约费率覆盖：
+ * - Binance USDC 合约 maker 挂单 0 fee
+ * - Hyperliquid taker fee 4.5 bps
+ */
+const USDC_FEE_OVERRIDES = {
+  binance: 0,
+  hyperliquid: 0.00045,
 };
 
 function buildSymbolVolumeIndex(symbolSnapshots) {
@@ -184,10 +203,15 @@ export function createAppStore(seedData) {
       },
     sorts: structuredClone(defaultSortState),
     spreadFilters: { ...defaultSpreadFilters },
+    usdcFilters: { ...defaultUsdcFilters },
     // 价差套利相关状态
-    activeTab: "funding", // "funding" | "spread"
-    realtimeQuotes: {}, // { BTC: { binance: Quote, hyperliquid: Quote }, ... }
-    feedStatus: { binance: "closed", hyperliquid: "closed" }, // WebSocket 连接状态
+    activeTab: "funding", // "funding" | "spread" | "usdc"
+    realtimeQuotes: {}, // { BTC: { binance: Quote, hyperliquid: Quote }, ... } (USDT 行情)
+    feedStatus: { binance: "closed", hyperliquid: "closed" }, // USDT WebSocket 连接状态
+    // USDC 永续合约专属状态（独立的 USDC 行情，不复用 USDT 行情）
+    usdcPerpSymbols: seedData.usdcPerpSymbols ?? [],
+    usdcRealtimeQuotes: {}, // { BTC: { binance: Quote, hyperliquid: Quote }, ... } (USDC 行情)
+    usdcFeedStatus: { binance: "closed", hyperliquid: "closed" }, // USDC WebSocket 连接状态
   };
 
   syncStrategyFromOpportunity();
@@ -300,6 +324,35 @@ export function createAppStore(seedData) {
     const readySpreadCount = allSpreadOpportunities.filter(
       (item) => item.status === "ready",
     ).length;
+
+    // USDC 永续合约价差：使用独立的 USDC 行情数据 + USDC 专属费率（Binance maker 0 fee）
+    const usdcSymbolNames = getCommonSymbolNames(state.usdcPerpSymbols);
+    const allUsdcSpreadOpportunities = computeAllSpreadOpportunities(
+      state.usdcRealtimeQuotes,
+      {
+        feeOverrides: USDC_FEE_OVERRIDES,
+        allowedSymbols: usdcSymbolNames,
+        sortBy: state.sorts.usdc.sortBy,
+        sortDirection: state.sorts.usdc.sortDirection,
+      },
+    ).map((item) => ({
+      ...item,
+      binance24hVolumeUsd: symbolVolume24h[item.symbol]?.binance ?? null,
+      hyperliquid24hVolumeUsd: symbolVolume24h[item.symbol]?.hyperliquid ?? null,
+    }));
+    const usdcSpreadOpportunities = allUsdcSpreadOpportunities.filter(
+      (item) =>
+        (state.usdcFilters.status === "all" ||
+          item.status === state.usdcFilters.status) &&
+        (state.usdcFilters.min24hVolumeUsd <= 0 ||
+          (item.binance24hVolumeUsd ?? 0) >= state.usdcFilters.min24hVolumeUsd &&
+            (item.hyperliquid24hVolumeUsd ?? 0) >=
+              state.usdcFilters.min24hVolumeUsd),
+    );
+    const readyUsdcSpreadCount = allUsdcSpreadOpportunities.filter(
+      (item) => item.status === "ready",
+    ).length;
+
     const availableSymbols = getCommonSymbolNames(state.commonPerpSymbols);
     cachedState = {
       ...state,
@@ -326,6 +379,21 @@ export function createAppStore(seedData) {
       activeSpreadStatusFilter: state.spreadFilters.status,
       activeSpreadMin24hVolumeUsd: state.spreadFilters.min24hVolumeUsd,
       fundingSnapshotCount: state.monitorSnapshot.symbols.length,
+      // USDC 永续合约派生状态
+      usdcSpreadOpportunities,
+      usdcSpreadOpportunityCount: allUsdcSpreadOpportunities.length,
+      readyUsdcSpreadCount,
+      missingUsdcSpreadCount: Math.max(
+        state.usdcPerpSymbols.length - allUsdcSpreadOpportunities.length,
+        0,
+      ),
+      activeUsdcSort: state.sorts.usdc,
+      activeUsdcStatusFilter: state.usdcFilters.status,
+      activeUsdcMin24hVolumeUsd: state.usdcFilters.min24hVolumeUsd,
+      usdcFeeOverrides: USDC_FEE_OVERRIDES,
+      usdcPerpSymbols: state.usdcPerpSymbols,
+      usdcPerpCount: state.usdcPerpSymbols.length,
+      usdcFeedStatus: state.usdcFeedStatus,
     };
     cachedRevision = revision;
 
@@ -526,6 +594,29 @@ export function createAppStore(seedData) {
       };
       emit();
     },
+    setUsdcStatusFilter(status) {
+      if (!["all", "ready", "watch", "blocked"].includes(status)) {
+        return;
+      }
+      state.usdcFilters = {
+        ...state.usdcFilters,
+        status,
+      };
+      emit();
+    },
+    setUsdcMin24hVolumeUsd(min24hVolumeUsd) {
+      const normalizedValue = Number(min24hVolumeUsd);
+
+      if (![0, 1_000_000, 5_000_000, 10_000_000].includes(normalizedValue)) {
+        return;
+      }
+
+      state.usdcFilters = {
+        ...state.usdcFilters,
+        min24hVolumeUsd: normalizedValue,
+      };
+      emit();
+    },
     updateRiskConfig(key, value) {
       const normalizedValue =
         typeof value === "number" ? normalizeNumericValue(key, value) : value;
@@ -722,7 +813,7 @@ export function createAppStore(seedData) {
       emit();
     },
     setActiveTab(tab) {
-      if (tab !== "funding" && tab !== "spread") return;
+      if (tab !== "funding" && tab !== "spread" && tab !== "usdc") return;
       state.activeTab = tab;
       emit();
     },
@@ -819,6 +910,36 @@ export function createAppStore(seedData) {
       state.feedStatus = nextFeedStatus;
       state.feedStatusDetail = {
         ...(state.feedStatusDetail ?? {}),
+        [exchange]: detail,
+      };
+      emit();
+    },
+    updateUsdcRealtimeQuotes(quotes) {
+      const allowedSymbols = new Set(getCommonSymbolNames(state.usdcPerpSymbols));
+      const filteredQuotes = Object.fromEntries(
+        Object.entries(quotes).filter(([symbol]) => allowedSymbols.has(symbol)),
+      );
+
+      if (state.usdcRealtimeQuotes === filteredQuotes) {
+        return;
+      }
+
+      state.usdcRealtimeQuotes = filteredQuotes;
+      emit();
+    },
+    updateUsdcFeedStatus(exchange, feedStatus, detail = "") {
+      const nextFeedStatus = { ...state.usdcFeedStatus, [exchange]: feedStatus };
+
+      if (
+        state.usdcFeedStatus[exchange] === feedStatus &&
+        state.usdcFeedStatusDetail?.[exchange] === detail
+      ) {
+        return;
+      }
+
+      state.usdcFeedStatus = nextFeedStatus;
+      state.usdcFeedStatusDetail = {
+        ...(state.usdcFeedStatusDetail ?? {}),
         [exchange]: detail,
       };
       emit();

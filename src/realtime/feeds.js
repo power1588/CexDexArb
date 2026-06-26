@@ -35,6 +35,71 @@ const RECONNECT_MAX_DELAY = 30000;
  * @typedef {import("../core/spread.js").Quote} Quote
  */
 
+/** 将多种形态的标的输入归一化为 {symbol, binanceSymbol, hyperliquidSymbol} 列表 */
+function normalizeSymbolConfigs(symbolList) {
+  const seen = new Set();
+
+  return symbolList
+    .map((item) => {
+      if (typeof item === "string") {
+        return {
+          symbol: item,
+          binanceSymbol: `${item}USDT`,
+          hyperliquidSymbol: item,
+        };
+      }
+
+      if (!item?.symbol) {
+        return null;
+      }
+
+      return {
+        symbol: item.symbol,
+        binanceSymbol: item.binanceSymbol ?? `${item.symbol}USDT`,
+        hyperliquidSymbol: item.hyperliquidSymbol ?? item.symbol,
+      };
+    })
+    .filter(Boolean)
+    .filter((item) => {
+      const identity = `${item.symbol}:${item.binanceSymbol}:${item.hyperliquidSymbol}`;
+
+      if (seen.has(identity)) {
+        return false;
+      }
+
+      seen.add(identity);
+      return true;
+    });
+}
+
+/** 根据归一化标的列表构建双向映射索引 */
+function createExchangeMappings(symbolList) {
+  return symbolList.reduce(
+    (result, item) => {
+      result.bySymbol[item.symbol] = item;
+      result.byBinanceSymbol[item.binanceSymbol] = item.symbol;
+      result.byHyperliquidSymbol[item.hyperliquidSymbol] = item.symbol;
+      return result;
+    },
+    {
+      bySymbol: {},
+      byBinanceSymbol: {},
+      byHyperliquidSymbol: {},
+    },
+  );
+}
+
+/** 重置 quotes 对象为指定标的列表的空结构 */
+function resetQuotes(quotes, symbolList) {
+  Object.keys(quotes).forEach((symbol) => {
+    delete quotes[symbol];
+  });
+
+  for (const item of symbolList) {
+    quotes[item.symbol] = { binance: null, hyperliquid: null };
+  }
+}
+
 /**
  * 创建实时行情接入管理器。
  *
@@ -63,69 +128,7 @@ export function createRealtimeFeeds({
   let exchangeMappings = createExchangeMappings(currentSymbols);
   let latestUsdcUsdtRate = null;
 
-  function normalizeSymbolConfigs(symbolList) {
-    const seen = new Set();
-
-    return symbolList
-      .map((item) => {
-        if (typeof item === "string") {
-          return {
-            symbol: item,
-            binanceSymbol: `${item}USDT`,
-            hyperliquidSymbol: item,
-          };
-        }
-
-        if (!item?.symbol) {
-          return null;
-        }
-
-        return {
-          symbol: item.symbol,
-          binanceSymbol: item.binanceSymbol ?? `${item.symbol}USDT`,
-          hyperliquidSymbol: item.hyperliquidSymbol ?? item.symbol,
-        };
-      })
-      .filter(Boolean)
-      .filter((item) => {
-        const identity = `${item.symbol}:${item.binanceSymbol}:${item.hyperliquidSymbol}`;
-
-        if (seen.has(identity)) {
-          return false;
-        }
-
-        seen.add(identity);
-        return true;
-      });
-  }
-
-  function createExchangeMappings(symbolList) {
-    return symbolList.reduce(
-      (result, item) => {
-        result.bySymbol[item.symbol] = item;
-        result.byBinanceSymbol[item.binanceSymbol] = item.symbol;
-        result.byHyperliquidSymbol[item.hyperliquidSymbol] = item.symbol;
-        return result;
-      },
-      {
-        bySymbol: {},
-        byBinanceSymbol: {},
-        byHyperliquidSymbol: {},
-      },
-    );
-  }
-
-  function resetQuotes(symbolList) {
-    Object.keys(quotes).forEach((symbol) => {
-      delete quotes[symbol];
-    });
-
-    for (const item of symbolList) {
-      quotes[item.symbol] = { binance: null, hyperliquid: null };
-    }
-  }
-
-  resetQuotes(currentSymbols);
+  resetQuotes(quotes, currentSymbols);
 
   function hasReadyQuote(sym) {
     return Boolean(
@@ -462,7 +465,7 @@ export function createRealtimeFeeds({
       currentSymbols = normalized;
       exchangeMappings = createExchangeMappings(currentSymbols);
       reconnectSuppressed = true;
-      resetQuotes(currentSymbols);
+      resetQuotes(quotes, currentSymbols);
 
       Object.values(sockets).forEach((ws) => {
         try {
@@ -482,6 +485,293 @@ export function createRealtimeFeeds({
         setStatus("binance", "closed", "no-symbols");
         setStatus("hyperliquid", "closed", "no-symbols");
         setStatus("binanceFx", "closed", "no-symbols");
+      }
+
+      return true;
+    },
+    getSubscribedSymbols() {
+      return currentSymbols.map((item) => item.symbol);
+    },
+  };
+}
+
+/**
+ * 创建 USDC 永续合约专属实时行情接入管理器。
+ *
+ * 与 {@link createRealtimeFeeds} 的核心差异：
+ * - Binance 订阅 USDC-M 合约 stream（如 `btcusdc@bookTicker`），而非 USDT-M
+ * - 两腿均以 USDC 计价，无需 USDC/USDT 汇率折算
+ * - Binance maker 挂单 0 fee，价差计算由调用方通过 feeOverrides 体现
+ *
+ * @param {Object} options
+ * @param {(string | {symbol: string, binanceSymbol?: string, hyperliquidSymbol?: string})[]} [options.symbols] - 订阅标的列表（binanceSymbol 应为 XXXUSDC 形态）
+ * @param {(quotes: Record<string, {binance: Quote, hyperliquid: Quote}>) => void} [options.onQuotes]
+ * @param {(exchange: string, status: "connecting"|"open"|"closed"|"error", detail?: string) => void} [options.onStatus]
+ * @param {typeof globalThis.WebSocket} [options.WebSocketImpl] - 注入便于测试
+ * @returns {{start: () => void, stop: () => void, getQuotes: () => Record<string, {binance: Quote, hyperliquid: Quote}>, getStatus: () => Record<string, string>}}
+ */
+export function createUsdcRealtimeFeeds({
+  symbols = [],
+  onQuotes,
+  onStatus,
+  WebSocketImpl = typeof WebSocket !== "undefined" ? WebSocket : undefined,
+} = {}) {
+  const quotes = {};
+  const status = { binance: "closed", hyperliquid: "closed" };
+  let sockets = {};
+  let reconnectTimers = {};
+  let reconnectAttempts = { binance: 0, hyperliquid: 0 };
+  let stopped = false;
+  let currentSymbols = normalizeSymbolConfigs(symbols);
+  let started = false;
+  let reconnectSuppressed = false;
+  let exchangeMappings = createExchangeMappings(currentSymbols);
+
+  resetQuotes(quotes, currentSymbols);
+
+  function hasReadyQuote(sym) {
+    return Boolean(quotes[sym]?.binance && quotes[sym]?.hyperliquid);
+  }
+
+  function emit(sym) {
+    if (onQuotes && hasReadyQuote(sym)) {
+      onQuotes({ ...quotes });
+    }
+  }
+
+  function setStatus(exchange, st, detail) {
+    status[exchange] = st;
+    onStatus?.(exchange, st, detail);
+  }
+
+  function scheduleReconnect(exchange) {
+    if (stopped || reconnectSuppressed || currentSymbols.length === 0) return;
+    const attempts = ++reconnectAttempts[exchange];
+    const delay = Math.min(
+      RECONNECT_BASE_DELAY * 2 ** (attempts - 1),
+      RECONNECT_MAX_DELAY,
+    );
+    reconnectTimers[exchange] = setTimeout(() => {
+      if (!stopped) connect(exchange);
+    }, delay);
+  }
+
+  function connect(exchange) {
+    if (stopped || !WebSocketImpl || currentSymbols.length === 0) return;
+    if (sockets[exchange]) {
+      try {
+        sockets[exchange].close();
+      } catch {
+        // 忽略关闭错误
+      }
+    }
+
+    setStatus(exchange, "connecting");
+    const ws =
+      exchange === "binance" ? connectBinanceUsdc() : connectHyperliquid();
+    sockets[exchange] = ws;
+  }
+
+  /** 连接 Binance USDC-M Futures，订阅所有 symbol 的 bookTicker */
+  function connectBinanceUsdc() {
+    const streams = currentSymbols
+      .map((item) => `${item.binanceSymbol.toLowerCase()}@bookTicker`)
+      .join("/");
+    const url = `${BINANCE_WS}/stream?streams=${streams}`;
+
+    let ws;
+    try {
+      ws = new WebSocketImpl(url);
+    } catch (err) {
+      setStatus("binance", "error", String(err?.message || err));
+      scheduleReconnect("binance");
+      return null;
+    }
+
+    ws.onopen = () => {
+      reconnectAttempts.binance = 0;
+      reconnectSuppressed = false;
+      setStatus("binance", "open");
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const envelope = JSON.parse(event.data);
+        const payload = envelope.data || envelope;
+        if (!payload.s) return;
+        const base = exchangeMappings.byBinanceSymbol[payload.s];
+        if (!base || !quotes[base]) return;
+
+        quotes[base].binance = {
+          exchange: "binance",
+          bidPrice: Number(payload.b),
+          askPrice: Number(payload.a),
+          bidQty: Number(payload.B),
+          askQty: Number(payload.A),
+          timestamp: Number(payload.E || Date.now()),
+          quoteCurrency: "USDC",
+        };
+        emit(base);
+      } catch {
+        // 忽略解析错误
+      }
+    };
+
+    ws.onerror = () => {
+      setStatus("binance", "error");
+    };
+
+    ws.onclose = () => {
+      setStatus("binance", "closed");
+      scheduleReconnect("binance");
+    };
+
+    return ws;
+  }
+
+  /** 连接 Hyperliquid，订阅所有 coin 的 bbo（USDC 计价，无需折算） */
+  function connectHyperliquid() {
+    const url = HYPERLIQUID_WS;
+    let ws;
+    try {
+      ws = new WebSocketImpl(url);
+    } catch (err) {
+      setStatus("hyperliquid", "error", String(err?.message || err));
+      scheduleReconnect("hyperliquid");
+      return null;
+    }
+
+    ws.onopen = () => {
+      reconnectAttempts.hyperliquid = 0;
+      reconnectSuppressed = false;
+      setStatus("hyperliquid", "open");
+      for (const item of currentSymbols) {
+        try {
+          ws.send(
+            JSON.stringify({
+              method: "subscribe",
+              subscription: { type: "bbo", coin: item.hyperliquidSymbol },
+            }),
+          );
+        } catch {
+          // 忽略发送错误
+        }
+      }
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.channel !== "bbo" || !msg.data) return;
+        const { coin, bbo, time } = msg.data;
+        const symbol = exchangeMappings.byHyperliquidSymbol[coin];
+        if (!symbol || !quotes[symbol]) return;
+
+        const bid = bbo?.[0];
+        const ask = bbo?.[1];
+
+        quotes[symbol].hyperliquid = {
+          exchange: "hyperliquid",
+          bidPrice: bid ? Number(bid.px) : NaN,
+          askPrice: ask ? Number(ask.px) : NaN,
+          bidQty: bid ? Number(bid.sz) : 0,
+          askQty: ask ? Number(ask.sz) : 0,
+          timestamp: Number(time || Date.now()),
+          quoteCurrency: "USDC",
+        };
+        emit(symbol);
+      } catch {
+        // 忽略解析错误
+      }
+    };
+
+    ws.onerror = () => {
+      setStatus("hyperliquid", "error");
+    };
+
+    ws.onclose = () => {
+      setStatus("hyperliquid", "closed");
+      scheduleReconnect("hyperliquid");
+    };
+
+    return ws;
+  }
+
+  return {
+    start() {
+      stopped = false;
+      started = true;
+      if (currentSymbols.length === 0) {
+        setStatus("binance", "closed", "no-symbols");
+        setStatus("hyperliquid", "closed", "no-symbols");
+        return;
+      }
+      connect("binance");
+      connect("hyperliquid");
+    },
+    stop() {
+      stopped = true;
+      started = false;
+      reconnectSuppressed = true;
+      for (const timer of Object.values(reconnectTimers)) {
+        clearTimeout(timer);
+      }
+      reconnectTimers = {};
+      for (const ws of Object.values(sockets)) {
+        try {
+          ws?.close();
+        } catch {
+          // 忽略
+        }
+      }
+      sockets = {};
+      status.binance = "closed";
+      status.hyperliquid = "closed";
+    },
+    getQuotes() {
+      return quotes;
+    },
+    getStatus() {
+      return { ...status };
+    },
+    updateSymbols(nextSymbols = []) {
+      const normalized = normalizeSymbolConfigs(nextSymbols);
+      const changed =
+        normalized.length !== currentSymbols.length ||
+        normalized.some((symbol, index) => {
+          const current = currentSymbols[index];
+          return (
+            symbol.symbol !== current?.symbol ||
+            symbol.binanceSymbol !== current?.binanceSymbol ||
+            symbol.hyperliquidSymbol !== current?.hyperliquidSymbol
+          );
+        });
+
+      if (!changed) {
+        return false;
+      }
+
+      currentSymbols = normalized;
+      exchangeMappings = createExchangeMappings(currentSymbols);
+      reconnectSuppressed = true;
+      resetQuotes(quotes, currentSymbols);
+
+      Object.values(sockets).forEach((ws) => {
+        try {
+          ws?.close();
+        } catch {
+          // 忽略
+        }
+      });
+      sockets = {};
+      reconnectSuppressed = false;
+
+      if (started && currentSymbols.length > 0) {
+        connect("binance");
+        connect("hyperliquid");
+      } else {
+        setStatus("binance", "closed", "no-symbols");
+        setStatus("hyperliquid", "closed", "no-symbols");
       }
 
       return true;
